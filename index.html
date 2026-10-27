@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Custom Roles Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink: #1e1c1c; --muted: #6b7280; --line: #e5e7eb; --brand: #ff4301; --bg: #f7f7f8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: 'Outfit', sans-serif; color: var(--ink); background: var(--bg); overflow: hidden; }
+  .top { height: 46px; display: flex; align-items: center; gap: 16px; padding: 0 16px; background: var(--ink); color: #fff; }
+  .top h1 { font-size: 15px; font-weight: 600; margin: 0; white-space: nowrap; }
+  .spacer { flex: 1; }
+  .seg { display: flex; border: 1px solid #4b4b4b; border-radius: 999px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: #d1d5db; font: 600 12px 'Outfit', sans-serif; padding: 5px 12px; cursor: pointer; }
+  .seg button.on { background: #fff; color: var(--ink); }
+  .navbtn { border: 1px solid #4b4b4b; background: transparent; color: #fff; font: 600 12px 'Outfit', sans-serif; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+  .navbtn:disabled { opacity: .35; cursor: default; }
+  .navbtn.primary { background: var(--brand); border-color: var(--brand); }
+  .steps { height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 16px; background: #fff; border-bottom: 1px solid var(--line); overflow-x: auto; white-space: nowrap; }
+  .group { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-right: 6px; }
+  .step { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 4px 9px; font: 500 13px 'Outfit', sans-serif; color: #374151; cursor: pointer; }
+  .step .n { width: 18px; height: 18px; border-radius: 9px; background: #e5e7eb; color: #374151; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .step:hover { background: #f3f4f6; }
+  .step.on { border-color: var(--brand); background: #fff4ef; color: var(--ink); font-weight: 600; }
+  .step.on .n { background: var(--brand); color: #fff; }
+  iframe { display: block; width: 100%; height: calc(100% - 86px); border: 0; background: #fff; }
+  @media (max-width: 700px) { .top h1 { font-size: 13px; } .navbtn { padding: 5px 8px; } }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>Custom roles: admin &amp; tool access</h1>
+    <div class="spacer"></div>
+    <div class="seg" role="group" aria-label="Mode">
+      <button data-mode="today">Today</button>
+      <button data-mode="after">After change</button>
+    </div>
+    <button class="navbtn" id="back">Back</button>
+    <button class="navbtn primary" id="next">Next step</button>
+  </div>
+  <nav class="steps" id="steps" aria-label="Steps"><span class="group">Frinks Vision</span></nav>
+  <iframe id="screen" title="Screen"></iframe>
+<script>
+const STEPS = [
+  { id: 'roles-add', title: 'Add a custom role', url: 'roles.html?state=add' },
+  { id: 'roles-view-builtin', title: 'View a built-in role', url: 'roles.html?state=view-builtin' },
+  { id: 'user-assign', title: 'Give the role to Kavya', url: 'users.html?state=assign' },
+  { id: 'holder-users', title: 'Kavya: Users', url: 'users.html?state=holder' },
+  { id: 'holder-plants', title: 'Kavya: Teams & Plants', url: 'plants.html?state=holder' },
+  { id: 'holder-tools', title: 'Kavya: Projects & tools', url: 'projects.html?state=holder' },
+];
+const frame = document.getElementById('screen');
+const stepsEl = document.getElementById('steps');
+let mode = new URLSearchParams(location.search).get('mode') === 'today' ? 'today' : 'after';
+const current = () => Math.max(0, STEPS.findIndex((s) => s.id === location.hash.slice(1)));
+
+STEPS.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.className = 'step';
+  b.dataset.id = s.id;
+  b.innerHTML = `<span class="n">${i + 1}</span>${s.title}`;
+  b.onclick = () => go(s.id);
+  stepsEl.appendChild(b);
+});
+const go = (id) => { if (location.hash.slice(1) === id) show(); else location.hash = id; };
+const show = () => {
+  const i = current();
+  const s = STEPS[i];
+  if (location.hash.slice(1) !== s.id) history.replaceState(null, '', `${location.pathname}${location.search}#${s.id}`);
+  stepsEl.querySelectorAll('.step').forEach((b) => b.classList.toggle('on', b.dataset.id === s.id));
+  document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  document.getElementById('back').disabled = i === 0;
+  document.getElementById('next').disabled = i === STEPS.length - 1;
+  frame.src = `${s.url}&mode=${mode}`;
+  document.title = `${i + 1}. ${s.title} – Custom Roles Prototype`;
+};
+document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => {
+  mode = b.dataset.mode;
+  const p = new URLSearchParams(location.search);
+  p.set('mode', mode);
+  history.replaceState(null, '', `${location.pathname}?${p}${location.hash}`);
+  show();
+}));
+document.getElementById('back').onclick = () => go(STEPS[Math.max(0, current() - 1)].id);
+document.getElementById('next').onclick = () => go(STEPS[Math.min(STEPS.length - 1, current() + 1)].id);
+window.addEventListener('hashchange', show);
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'cra-nav' && STEPS.some((s) => s.id === e.data.to)) go(e.data.to);
+});
+show();
+</script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plants</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="assets.js"></script>
+<script src="proto.js"></script>
+<link rel="stylesheet" href="proto.css">
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* Teams & Plants > Plants / Teams  (src/modules/team-user/{plant,team}/index.tsx + AddPlantModal / AddTeamModal)
+   Signed in as Kavya Rao, who holds only the custom role. Sidebar Plants / Teams switch the page. */
+const { esc, icon } = CRA;
+const app = document.getElementById('app');
+let S = CRA.load();
+const ui = { sub: new URLSearchParams(location.search).get('sub') === 'teams' ? 'teams' : 'plants', modal: null, menu: null };
+const plants = CRA.PLANTS.map((p) => ({ ...p }));
+const teams = CRA.TEAMS.map((t) => ({ ...t }));
+
+const render = () => {
+  CRA.hideTip();
+  const a = CRA.kavyaAccess(S);
+  const canManage = a.plants;
+  let page;
+  if (ui.sub === 'plants') {
+    const head = CRA.th('Plant Name', '', 0) + CRA.th('Location', '', 1) + CRA.th('', '', 2, true);
+    const body = plants.map((p) => `<tr>${CRA.td(esc(p.name))}${CRA.td(esc(p.location))}<td class="px-2 py-2 text-black overflow-visible flex justify-end"><div class="flex h-full w-full items-center justify-center text-center">${CRA.rowMenu(p.id, canManage)}</div></td></tr>`).join('');
+    const add = CRA.gated(canManage, CRA.msg.addPlant, CRA.button('<div class="flex items-center gap-2">Add Plant</div>', { attrs: 'data-act="add"' }));
+    page = `${CRA.heading('Plants', 'A physical site. Instances are assigned to a plant, so people at one site only manage their own machines.', `<div class="flex items-center gap-3">${add}</div>`)}
+      <div class="flex flex-col gap-6 p-4"><div class="relative shadow-md sm:rounded-lg">${CRA.table([0, 1, 2], ['33.33%', '33.33%', '33.33%'], head, body)}</div></div>`;
+  } else {
+    const head = CRA.th('Team Name', '', 0, true);
+    const body = teams.map((t) => `<tr>${CRA.td(esc(t.name))}</tr>`).join('');
+    const add = CRA.gated(canManage, CRA.msg.addTeam, CRA.button('<div class="flex items-center gap-2">Add Team</div>', { attrs: 'data-act="add"' }));
+    page = `${CRA.heading('Teams', 'A team is a group of people. Together with their plant, it decides which instances a person sees.', `<div class="flex items-center gap-3">${add}</div>`)}
+      <div class="flex flex-col gap-6 p-4"><div class="relative shadow-md sm:rounded-lg">${CRA.table([0], null, head, body)}</div></div>`;
+  }
+  let modal = '';
+  if (ui.modal) {
+    const m = ui.modal;
+    const footer = `<div class="ml-auto flex w-3/5 items-center justify-end gap-4">${CRA.button('Cancel', { variant: 'border', full: true, attrs: 'data-act="modal-close"' })}${CRA.button('Confirm', { full: true, attrs: 'data-act="confirm"' })}</div>`;
+    modal = ui.sub === 'plants'
+      ? CRA.modal('Add a new plant', `
+          <div class="mb-4">${CRA.label('Plant Name', 'The name of the new plant/facility.')}${CRA.input(m.name, { placeholder: 'Enter plant name', attrs: 'data-input="name"', error: m.errName })}</div>
+          <div>${CRA.label('Plant Location', 'The physical address or site location of this plant.')}${CRA.input(m.location, { placeholder: 'Enter plant location', attrs: 'data-input="location"', error: m.errLoc })}</div>`, footer, 'Register a new plant/facility in your organization.')
+      : CRA.modal('Add team', `<div class="mb-4">${CRA.label('Team Name', 'The name of the new team.')}${CRA.input(m.name, { placeholder: 'Enter team name', attrs: 'data-input="name"', error: m.errName })}</div>`, footer, 'Create a new team.');
+  }
+  app.innerHTML = `
+    ${CRA.sidebar({ active: ui.sub, user: 'Kavya Rao', access: a })}
+    <div class="${CRA.mainClass()}"><div class="flex h-screen flex-col overflow-hidden"><div class="flex-1 overflow-auto">${page}</div></div></div>
+    ${modal}
+    ${ui.menu ? CRA.rowMenuList(ui.menu.items, ui.menu.rect) : ''}`;
+};
+
+app.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act]');
+  if (ui.menu && !(el && el.dataset.act === 'menu-item')) { ui.menu = null; render(); if (!el || el.dataset.act === 'menu') return; }
+  if (!el) return;
+  if (CRA.sidebarClick(el, render, (key) => { if (key === 'plants' || key === 'teams') { ui.sub = key; ui.modal = null; render(); } })) return;
+  switch (el.dataset.act) {
+    case 'add': ui.modal = { name: '', location: '' }; return render();
+    case 'modal-backdrop': if (ev.target.closest('[data-stop]')) return; ui.modal = null; return render();
+    case 'modal-close': ui.modal = null; return render();
+    case 'confirm': {
+      const m = ui.modal;
+      m.errName = m.name.trim() ? '' : (ui.sub === 'plants' ? 'Plant name is required' : 'Team name is required');
+      m.errLoc = ui.sub === 'plants' && !m.location.trim() ? 'Plant location is required' : '';
+      if (m.errName || m.errLoc) return render();
+      if (ui.sub === 'plants') plants.push({ id: 'p' + Date.now(), name: m.name.trim(), location: m.location.trim() });
+      else teams.push({ id: 't' + Date.now(), name: m.name.trim() });
+      ui.modal = null;
+      return render();
+    }
+    case 'menu': ui.menu = { items: [{ label: 'Download', icon: icon.download(), run: () => {} }], rect: el.getBoundingClientRect() }; return render();
+    case 'menu-item': { const it = ui.menu.items[+el.dataset.idx]; ui.menu = null; it.run(); return render(); }
+  }
+});
+app.addEventListener('input', (ev) => { const k = ev.target.dataset.input; if (k && ui.modal) ui.modal[k] = ev.target.value; });
+CRA.onStateChange(() => { S = CRA.load(); render(); });
+render();
+CRA.mountModeSwitch();
+</script>
+</body>
+</html>

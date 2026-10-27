@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="assets.js"></script>
+<script src="proto.js"></script>
+<link rel="stylesheet" href="proto.css">
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* Projects  (src/modules/project/index.tsx + components/ProjectCard.tsx, src/shared/ui/Card/*)
+   Signed in as Kavya Rao, who holds only the custom role. Sidebar shows the two tool items. */
+const { esc } = CRA;
+const app = document.getElementById('app');
+let S = CRA.load();
+
+const PROJECTS = [
+  { name: 'Cap Seal Inspection', description: 'Checks cap seating and seal on Line 2 bottles.', createdBy: 'Ananya Iyer', createdAt: 'Sep 14, 2026' },
+  { name: 'Label Print Check', description: 'Print presence and position on front labels.', createdBy: 'Ananya Iyer', createdAt: 'Oct 2, 2026' },
+  { name: 'Weld Bead Line 2', description: 'Bead width and gaps on the bracket weld.', createdBy: 'Rohan Mehta', createdAt: 'Oct 21, 2026' },
+];
+const initials = (n) => { const p = n.trim().split(' '); return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase(); };
+const folderOpen = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-[32px] text-[#ff4301]"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg>';
+
+const card = (p) => `
+  <div class="group relative flex min-h-[160px] w-full flex-col justify-between overflow-hidden rounded-[8px] border border-gray-200 bg-white p-6 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-md hover:border-gray-200">
+    <div class="flex gap-4 pr-6">
+      <div class="flex h-[48px] w-[48px] shrink-0 items-center justify-center rounded-2xl bg-f-light text-f-primary transition-transform duration-300 group-hover:scale-105">${folderOpen}</div>
+      <div class="flex flex-col pt-1">
+        <h3 class="line-clamp-1 break-all text-base font-semibold text-gray-900 transition-colors group-hover:text-f-primary">${esc(p.name)}</h3>
+        <div class="mt-1.5 line-clamp-2 break-all text-sm leading-snug text-gray-500">${esc(p.description)}</div>
+      </div>
+    </div>
+    <div class="mt-6 flex items-center justify-between border-t border-gray-50/50 pt-4">
+      <div class="flex items-center gap-3 text-sm text-gray-600">
+        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-f-primary text-[11px] font-bold text-white shadow-sm">${initials(p.createdBy)}</div>
+        <span class="text-sm font-semibold text-gray-800">${esc(p.createdBy)}</span>
+      </div>
+      <div class="flex items-center gap-2 text-sm text-gray-500"><div class="h-1.5 w-1.5 rounded-full bg-f-primary shadow-sm"></div><span class="text-xs font-semibold text-gray-500">${esc(p.createdAt)}</span></div>
+    </div>
+    <div class="absolute inset-x-0 bottom-0 z-10 flex h-24 translate-y-full items-center justify-center gap-3 bg-gradient-to-t from-white via-white/95 to-transparent px-6 pb-2 pt-6 transition-transform duration-300 ease-out group-hover:translate-y-0">
+      <div class="flex-1">${CRA.gated(false, 'You need Project Management to edit projects.', CRA.button('Edit', { variant: 'border', full: true, cls: 'bg-white shadow-sm' }), 'w-full')}</div>
+      <div class="block flex-1">${CRA.button('Open', { full: true, cls: 'shadow-sm' })}</div>
+    </div>
+  </div>`;
+const createCard = `
+  <div class="group relative flex min-h-[160px] w-full cursor-pointer flex-col items-center justify-center overflow-hidden rounded-[8px] border-2 border-dashed border-gray-300 bg-white p-6 shadow-sm">
+    <div class="mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-[14px] bg-f-primary text-white shadow-md"><span class="text-[32px] font-light leading-none -mt-1">+</span></div>
+    <h3 class="text-base font-bold text-gray-900">Start a new project</h3>
+    <p class="mt-1 text-sm font-medium text-gray-500">Click to create</p>
+  </div>`;
+
+const render = () => {
+  CRA.hideTip();
+  const a = CRA.kavyaAccess(S);
+  const canCreate = (a.perms.project || []).includes('create');
+  const license = CRA.gated(a.license, CRA.msg.license,
+    `<span class="relative inline-flex items-center" data-tip="Generates a time-limited licence file so you can trial FrinksEdge on one machine before buying a full licence.">${CRA.button('<span class="text-sm">Download Demo License</span>', { size: 'md', cls: 'flex items-center gap-1 px-4 py-1 w-fit !h-fit', attrs: 'data-act="license"' })}</span>`);
+  app.innerHTML = `
+    ${CRA.sidebar({ active: 'projects', user: 'Kavya Rao', access: a })}
+    <div class="${CRA.mainClass()}"><div class="h-screen overflow-auto">
+      ${CRA.heading('Projects', 'One inspection use case — a product, line or station. Everything lives inside it: variants, captures, datasets, models and instances.', `<div class="flex items-center gap-3">${license}</div>`)}
+      <div class="flex flex-col gap-6 p-4 h-full">
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(270px,1fr))] gap-6 mt-2">
+          ${CRA.gated(canCreate, 'You need Project Management to create projects.', createCard, 'h-full w-full')}
+          ${PROJECTS.map(card).join('')}
+        </div>
+      </div>
+    </div></div>`;
+};
+app.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act]');
+  if (!el) return;
+  if (CRA.sidebarClick(el, render)) return;
+});
+CRA.onStateChange(() => { S = CRA.load(); render(); });
+render();
+CRA.mountModeSwitch();
+</script>
+</body>
+</html>

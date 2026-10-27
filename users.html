@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Users</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="assets.js"></script>
+<script src="proto.js"></script>
+<link rel="stylesheet" href="proto.css">
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* Users & Permissions > Users  (src/modules/roles-permissions/user/index.tsx + UserDrawer.tsx)
+   state=assign: signed in as Ananya Iyer (Org Admin), editing Kavya Rao.
+   state=holder: signed in as Kavya Rao, who holds only the custom role. */
+const { esc, icon } = CRA;
+const app = document.getElementById('app');
+let S = CRA.load();
+const AS_KAVYA = CRA.state === 'holder';
+const ME = AS_KAVYA ? 'kavya' : 'ananya';
+
+const MSG = {
+  giveOnlyOwnRoles: 'You can only give roles you have yourself.',
+  orgAdminHasAll: 'Org Admins have every role.',
+  orgAdminOnly: 'Only Org Admins can make someone an Org Admin.',
+  noSelfChange: 'You can’t change your own access.',
+  ownPlantOnly: 'Manage Users – Plant holders can only add users to their own plant.',
+  noRoleNote: 'If you don’t assign any role, this user will have View access to all sections of Vision, in the projects they’re added to.',
+};
+
+let USERS = [
+  { id: 'ananya', name: 'Ananya Iyer', email: 'ananya.iyer@northwindplastics.com', phone: '+91 98450 11223', plant: null, team: null, isOrgAdmin: true, roles: [], status: 'Active' },
+  { id: 'kavya', name: 'Kavya Rao', email: 'kavya.rao@northwindplastics.com', phone: '+91 98765 43210', plant: 'chennai', team: 'line2', isOrgAdmin: false, roles: ['__custom'], status: 'Active' },
+  { id: 'rohan', name: 'Rohan Mehta', email: 'rohan.mehta@northwindplastics.com', phone: '', plant: 'pune', team: 'line1', isOrgAdmin: false, roles: ['recipe', 'datasets'], status: 'Active' },
+  { id: 'meera', name: 'Meera Nair', email: 'meera.nair@northwindplastics.com', phone: '', plant: 'chennai', team: 'paint', isOrgAdmin: false, roles: [], status: 'Active' },
+  { id: 'arjun', name: 'Arjun Das', email: 'arjun.das@northwindplastics.com', phone: '', plant: 'chennai', team: 'line1', isOrgAdmin: false, roles: ['annotation'], status: 'Invited' },
+];
+const plantName = (id) => (CRA.PLANTS.find((p) => p.id === id) || {}).name || '';
+const teamName = (id) => (CRA.TEAMS.find((t) => t.id === id) || {}).name || '';
+const customHeld = () => !S.role.deleted;
+const rolesOf = (u) => u.roles.filter((r) => r !== '__custom' || (u.id !== 'kavya' || (S.assignedToKavya && customHeld())));
+const roleName = (k) => k === '__custom' ? S.role.name : (CRA.BUILTINS.find((b) => b.key === k) || {}).name;
+// Kavya's custom-role holding lives in shared state.
+const syncKavya = () => {
+  const k = USERS.find((u) => u.id === 'kavya');
+  k.roles = S.assignedToKavya && customHeld() ? ['__custom'] : [];
+};
+syncKavya();
+
+/* Who is signed in */
+const kav = CRA.kavyaAccess(S);
+const access = () => {
+  if (!AS_KAVYA) return { isOrgAdmin: true, scope: 'all', edge: true, manual: true, roles: [] };
+  const a = CRA.kavyaAccess(S);
+  return { isOrgAdmin: false, scope: a.scope, edge: a.edge, manual: a.manual, roles: a.holds ? ['__custom'] : [] };
+};
+
+/* Row actions, as the server computes them (frinksvision-backend src/access/userGuards.ts canActOnUser). */
+const canActOn = (u) => {
+  const a = access();
+  if (u.id === ME) return false;
+  if (a.isOrgAdmin) return true;
+  if (!a.scope || u.isOrgAdmin) return false;
+  if (a.scope === 'org') return true;
+  return a.scope === 'plant' && u.plant === 'chennai';
+};
+const menuFor = (u) => {
+  if (!canActOn(u)) return [];
+  const items = [{ label: 'Edit', icon: icon.edit(), run: () => openDrawer('edit', u) }];
+  if (u.status !== 'Invited') items.push(u.status === 'Inactive'
+    ? { label: 'Activate', icon: icon.edit(), run: () => { u.status = 'Active'; CRA.toast(`${u.name} is active`); } }
+    : { label: 'Deactivate', icon: icon.userX(), run: () => { u.status = 'Inactive'; CRA.toast(`${u.name} is inactive`); } });
+  if (u.status === 'Invited') items.push({ label: 'Resend Invite', icon: icon.mail(), run: () => CRA.toast(`Invitation sent to [${u.email}]`) });
+  items.push({ label: 'Delete', icon: icon.trash(), danger: true, run: () => { ui.del = u; } });
+  return items;
+};
+
+/* ---------- page state ---------- */
+const ui = { drawer: null, menu: null, del: null, scrollToEnd: false };
+const openDrawer = (type, u) => {
+  const a = access();
+  ui.drawer = {
+    type,
+    user: u || null,
+    name: u ? u.name : '',
+    email: u ? u.email : '',
+    phone: u ? u.phone : '',
+    plant: u ? u.plant || '' : (a.scope === 'plant' ? 'chennai' : ''),
+    team: u ? u.team || '' : '',
+    makeOrgAdmin: u ? u.isOrgAdmin : false,
+    roles: u ? rolesOf(u).slice() : [],
+    active: u ? u.status !== 'Inactive' : true,
+    error: '',
+  };
+};
+if (CRA.state === 'holder' && new URLSearchParams(location.search).get('open') === 'add' && access().scope) openDrawer('add');
+if (CRA.state === 'assign') {
+  openDrawer('edit', USERS.find((u) => u.id === 'kavya'));
+  if (customHeld() && !ui.drawer.roles.includes('__custom')) ui.drawer.roles.push('__custom');
+  ui.scrollToEnd = true;
+}
+
+/* ---------- drawer body (UserDrawer.tsx) ---------- */
+const drawerBody = () => {
+  const d = ui.drawer;
+  const a = access();
+  const isSelf = d.user && d.user.id === ME;
+  const plantLocked = isSelf || a.scope === 'plant';
+  const plantLockReason = isSelf ? MSG.noSelfChange : MSG.ownPlantOnly;
+  const invited = d.user && d.user.status === 'Invited';
+  const canGive = (key) => {
+    if (a.isOrgAdmin) return true;
+    if (!a.scope) return false;
+    if (a.roles.includes(key)) return true;
+    return key === 'manage_users_plant' && a.scope === 'org';
+  };
+  const list = [...CRA.BUILTINS.map((b) => ({ id: b.key, name: b.name, description: b.description })), ...(customHeld() ? [{ id: '__custom', name: S.role.name, description: S.role.desc }] : [])];
+  const sel = (label, value, opts, placeholder, locked, tip, field) => `
+    <div class="flex flex-col gap-1">
+      ${CRA.label(label)}
+      <div class="flex flex-col" ${locked && tip ? `data-tip="${esc(tip)}"` : ''}>
+        <select class="rounded-md border px-3 py-2 text-sm ${locked ? 'pointer-events-none' : ''}" ${locked ? 'disabled' : ''} aria-label="${label}" data-field="${field}">
+          <option value="">${placeholder}</option>
+          ${opts.map((o) => `<option value="${o.id}" ${o.id === value ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+  const orgAdminRow = `<div class="flex items-center gap-3 ${a.isOrgAdmin && !isSelf ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}" ${a.isOrgAdmin && !isSelf ? 'data-act="org-admin"' : ''}>${CRA.checkbox(d.makeOrgAdmin, !a.isOrgAdmin || isSelf)}<span class="text-sm font-medium">Make user Org Admin</span></div>`;
+  const orgAdminTip = isSelf ? MSG.noSelfChange : MSG.orgAdminOnly;
+  const roleRows = list.map((r) => {
+    const allowed = !d.makeOrgAdmin && !isSelf && canGive(r.id);
+    const checked = d.makeOrgAdmin || d.roles.includes(r.id);
+    const tip = d.makeOrgAdmin ? MSG.orgAdminHasAll : isSelf ? MSG.noSelfChange : MSG.giveOnlyOwnRoles;
+    const row = `<div class="flex w-full items-start gap-3 px-3 py-2 ${allowed ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}" ${allowed ? `data-act="role" data-role="${r.id}"` : ''}>
+        ${CRA.checkbox(checked, !allowed)}
+        <div class="flex flex-col"><span class="text-sm font-medium">${esc(r.name)}</span><span class="text-xs text-gray-500">${esc(r.description)}</span></div></div>`;
+    return `<li ${r.id === '__custom' ? 'data-custom-row' : ''}>${allowed ? row : `<div class="flex w-full" data-tip="${esc(tip)}">${row}</div>`}</li>`;
+  }).join('');
+  return `
+    <div class="flex flex-col gap-4 p-4" data-testid="user-drawer">
+      <div class="flex flex-col gap-1">${CRA.label('Name')}${CRA.input(d.name, { attrs: 'data-input="name"' })}</div>
+      <div class="flex flex-col gap-1">${CRA.label('Email')}${CRA.input(d.email, { disabled: !!d.user, attrs: 'data-input="email"' })}</div>
+      <div class="flex flex-col gap-1">${CRA.label('Phone number')}
+        <div><div class="PhoneInput"><div class="PhoneInputCountry"><div class="PhoneInputCountryIcon"><i style="background:#ff9933"></i><i style="background:#fff;display:flex;align-items:center;justify-content:center"><b style="width:4px;height:4px;border-radius:2px;background:#000080;display:block"></b></i><i style="background:#138808"></i></div><div class="PhoneInputCountrySelectArrow"></div></div>
+        <input class="PhoneInputInput" type="tel" placeholder="Enter phone number" aria-label="Phone number" value="${esc(d.phone)}" data-input="phone"></div></div>
+      </div>
+      ${d.makeOrgAdmin ? '' : `
+        ${sel('Plant', d.plant, CRA.PLANTS, 'Select a plant', plantLocked, plantLockReason, 'plant')}
+        ${sel('Team', d.team, CRA.TEAMS, 'Select a team', isSelf, MSG.noSelfChange, 'team')}`}
+      ${a.isOrgAdmin && !isSelf ? orgAdminRow : `<div class="flex" data-tip="${esc(orgAdminTip)}">${orgAdminRow}</div>`}
+      <div class="flex flex-col gap-2">
+        ${CRA.label('Roles')}
+        <p class="text-xs text-gray-500">${MSG.noRoleNote}</p>
+        <ul class="flex flex-col divide-y rounded-md border">${roleRows}</ul>
+      </div>
+      ${d.user && !isSelf ? `<div class="flex items-center gap-3">${CRA.label('Status')}${invited ? '<span class="text-sm text-gray-600">Invited</span>' : `<select class="rounded-md border px-3 py-2 text-sm" aria-label="Status" data-field="status"><option value="active" ${d.active ? 'selected' : ''}>Active</option><option value="inactive" ${!d.active ? 'selected' : ''}>Inactive</option></select>`}</div>` : ''}
+      ${d.error ? `<p class="text-sm text-red-500" role="alert">${esc(d.error)}</p>` : ''}
+    </div>`;
+};
+const drawerHtml = () => {
+  const d = ui.drawer;
+  const footer = `<div class="mb-3 flex w-2/3 items-end justify-end gap-2">${CRA.button('Cancel', { variant: 'border', attrs: 'data-act="dr-close"' })}${CRA.button(`<div class="flex items-center justify-center gap-2">${d.type === 'edit' ? 'Save' : `${icon.send()} Send Invite`}</div>`, { attrs: 'data-act="dr-submit"' })}</div>`;
+  return `
+    <div class="fixed left-0 top-0 z-[9] flex h-full w-full bg-[#B4B6B8]/50 duration-200" data-act="dr-backdrop"></div>
+    <div class="fixed top-0 z-[10] h-full w-full bg-white duration-200 right-0 max-w-lg">
+      <div class="flex text-lg justify-between border border-b-[1px] px-4 pt-3 pb-2 font-semibold h-[50px]">
+        <span class="flex items-center gap-1.5">${d.type === 'edit' ? 'Edit user' : 'Add a new user'}</span>
+        <span class="relative inline-flex items-center" data-tip="Close this panel." data-tip-pos="left"><span class="cursor-pointer" data-act="dr-close">${icon.close(20)}</span></span>
+      </div>
+      <div class="overflow-y-auto px-3 py-2" style="height:calc(100vh - 130px)" data-keep-scroll="drawer">${drawerBody()}</div>
+      <div class="flex justify-end border-t-[1px] px-3 pt-2 h-[80px]">${footer}</div>
+    </div>`;
+};
+
+/* ---------- render ---------- */
+const render = () => {
+  CRA.hideTip();
+  const a = access();
+  const cols = [
+    { label: 'User Name', info: "The user's full name." },
+    { label: 'Email', info: "The user's login email address." },
+    { label: 'Plant', info: 'The plant the user belongs to.' },
+    { label: 'Team', info: 'The team the user belongs to.' },
+    { label: 'Role(s)', info: 'What the user can do on top of View access. Viewer means no role.' },
+    { label: 'Status', info: 'Invited until the user sets a password, then Active or Inactive.' },
+  ];
+  const head = cols.map((c, i) => CRA.th(c.label, c.info, i)).join('') + CRA.th('', '', cols.length, true);
+  const chips = (u) => `<div class="flex flex-wrap gap-1">${u.isOrgAdmin ? '<span class="rounded-full bg-f-primary px-2 py-0.5 text-xs font-semibold text-white">Org Admin</span>'
+    : (rolesOf(u).length ? rolesOf(u).map(roleName) : ['Viewer']).map((r) => `<span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">${esc(r)}</span>`).join('')}</div>`;
+  const body = USERS.map((u) => `<tr>
+      ${CRA.td(esc(u.name))}${CRA.td(esc(u.email))}
+      ${CRA.td(u.isOrgAdmin ? '—' : esc(plantName(u.plant)))}${CRA.td(u.isOrgAdmin ? '—' : esc(teamName(u.team)))}
+      ${CRA.td(chips(u))}${CRA.td(esc(u.status))}${CRA.td(CRA.rowMenu(u.id, menuFor(u).length))}</tr>`).join('');
+  const addBtn = CRA.gated(!!a.scope, CRA.msg.addUser, `<span class="relative inline-flex items-center" data-tip="Invite a new user to your organization.">${CRA.button('Add User', { attrs: 'data-act="add-user"' })}</span>`);
+  const del = ui.del ? CRA.modal('Delete user', `<p>Delete ${esc(ui.del.name)}? This can't be undone.</p>`, `<div class="ml-auto flex items-center gap-4 justify-end">${CRA.button('Cancel', { variant: 'border', attrs: 'data-act="del-close"' })}${CRA.button('Delete', { attrs: 'data-act="del-ok"' })}</div>`) : '';
+  CRA.withScroll(app, () => {
+    app.innerHTML = `
+      ${CRA.sidebar({ active: 'users', user: AS_KAVYA ? 'Kavya Rao' : 'Ananya Iyer', access: a })}
+      <div class="${CRA.mainClass()}">
+        <div class="flex h-screen flex-col overflow-hidden"><div class="flex-1 overflow-auto">
+          ${CRA.heading('Users', 'All users in your organization and the roles assigned to them.', `<div class="flex items-center gap-3">${addBtn}</div>`)}
+          <div class="flex flex-col gap-6 p-4"><div class="relative sm:rounded-lg">${CRA.table([0, 1, 2, 3, 4, 5, 6], [null, null, null, null, 320, null, 60], head, body)}</div></div>
+        </div></div>
+      </div>
+      ${ui.drawer ? drawerHtml() : ''}
+      ${del}
+      ${ui.menu ? CRA.rowMenuList(ui.menu.items, ui.menu.rect) : ''}`;
+  });
+  if (ui.scrollToEnd) {
+    ui.scrollToEnd = false;
+    // Show the custom role row (bottom of the list); wait for Tailwind to style the drawer first.
+    const toEnd = () => {
+      const box = app.querySelector('[data-keep-scroll="drawer"]');
+      if (box) box.scrollTop = box.scrollHeight;
+      window.scrollTo(0, 0);
+    };
+    [0, 300, 900].forEach((t) => setTimeout(toEnd, t));
+  }
+};
+
+/* ---------- events ---------- */
+const submit = () => {
+  const d = ui.drawer;
+  d.error = '';
+  if (!d.name.trim() || (!d.user && !d.email.trim())) { d.error = 'Name and email are required.'; return render(); }
+  if (!d.makeOrgAdmin && (!d.plant || !d.team)) { d.error = 'Plant and team are required.'; return render(); }
+  if (d.user) {
+    Object.assign(d.user, { name: d.name.trim(), phone: d.phone, plant: d.plant, team: d.team, isOrgAdmin: d.makeOrgAdmin, roles: d.makeOrgAdmin ? [] : d.roles.slice() });
+    if (d.user.status !== 'Invited' && d.user.id !== ME) d.user.status = d.active ? 'Active' : 'Inactive';
+    if (d.user.id === 'kavya') { S = CRA.load(); S.assignedToKavya = d.user.roles.includes('__custom'); CRA.save(S); }
+    ui.drawer = null;
+    render();
+    CRA.toast('User updated');
+    if (CRA.state === 'assign' && d.user.id === 'kavya') setTimeout(() => CRA.nav('holder-users'), 800);
+  } else {
+    USERS.push({ id: 'u' + Date.now(), name: d.name.trim(), email: d.email.trim(), phone: d.phone, plant: d.plant, team: d.team, isOrgAdmin: d.makeOrgAdmin, roles: d.roles.slice(), status: 'Invited' });
+    ui.drawer = null;
+    render();
+    CRA.toast(`Invitation sent to [${d.email.trim()}]`);
+  }
+};
+app.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act]');
+  if (ui.menu && !(el && el.dataset.act === 'menu-item')) { ui.menu = null; render(); if (!el || el.dataset.act === 'menu') return; }
+  if (!el) return;
+  if (CRA.sidebarClick(el, render)) return;
+  const d = ui.drawer;
+  switch (el.dataset.act) {
+    case 'menu': ui.menu = { items: menuFor(USERS.find((u) => u.id === el.dataset.id)), rect: el.getBoundingClientRect() }; return render();
+    case 'menu-item': { const it = ui.menu.items[+el.dataset.idx]; ui.menu = null; it.run(); return render(); }
+    case 'add-user': openDrawer('add'); return render();
+    case 'dr-close': case 'dr-backdrop': ui.drawer = null; return render();
+    case 'dr-submit': return submit();
+    case 'org-admin': d.makeOrgAdmin = !d.makeOrgAdmin; return render();
+    case 'role': { const r = el.dataset.role; d.roles = d.roles.includes(r) ? d.roles.filter((x) => x !== r) : [...d.roles, r]; return render(); }
+    case 'modal-backdrop': if (ev.target.closest('[data-stop]')) return; ui.del = null; return render();
+    case 'modal-close': case 'del-close': ui.del = null; return render();
+    case 'del-ok': { const u = ui.del; USERS = USERS.filter((x) => x !== u); ui.del = null; render(); CRA.toast(`${u.name} deleted`); return; }
+  }
+});
+app.addEventListener('change', (ev) => {
+  const f = ev.target.dataset.field;
+  if (!f || !ui.drawer) return;
+  if (f === 'status') ui.drawer.active = ev.target.value === 'active'; else ui.drawer[f] = ev.target.value;
+});
+app.addEventListener('input', (ev) => {
+  const k = ev.target.dataset.input;
+  if (k && ui.drawer) ui.drawer[k] = ev.target.value;
+});
+CRA.onStateChange(() => { S = CRA.load(); syncKavya(); render(); });
+render();
+CRA.mountModeSwitch();
+</script>
+</body>
+</html>

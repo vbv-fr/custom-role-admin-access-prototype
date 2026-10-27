@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="assets.js"></script>
+<script src="proto.js"></script>
+<link rel="stylesheet" href="proto.css">
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* Users & Permissions > Roles  (src/modules/roles-permissions/roles/{index,RoleEditor,PermissionGrid,VerticalStepper}.tsx)
+   Signed in as Ananya Iyer, Org Admin. */
+const { esc, icon } = CRA;
+const app = document.getElementById('app');
+let S = CRA.load();
+
+const COUNTS = { org_admin: 1, recipe: 1, datasets: 1, annotation: 1 };
+const ROWS = [
+  { area: 'project', label: 'Project Details' },
+  { area: 'recipe', label: 'Recipe' },
+  { area: 'datasets', label: 'Datasets' },
+  { area: 'annotation', label: 'Annotations' },
+  { area: 'models', label: 'AI Models' },
+  { area: 'instances', label: 'Instances' },
+];
+const COLUMNS = ['Create', 'View', 'Edit', 'Delete', 'Download'];
+const actionFor = (area, column) => {
+  if (column === 'View') return 'view';
+  if (area === 'annotation') return column === 'Download' ? null : 'write';
+  const a = column.toLowerCase();
+  return CRA.AREA_ACTIONS[area].includes(a) ? a : null;
+};
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const emptyGrid = () => ({ perms: { project: [], recipe: [], datasets: [], annotation: [], models: [], instances: [] }, manageUsers: 'none', plantsCreate: false, tools: { edge: false, license: false, manual: false } });
+const sameGrid = (a, b) => {
+  const permsSame = CRA.AREAS.every((ar) => [...(a.perms[ar] || [])].sort().join() === [...(b.perms[ar] || [])].sort().join());
+  if (!CRA.after) return permsSame;
+  return permsSame && a.manageUsers === b.manageUsers && a.plantsCreate === b.plantsCreate &&
+    ['edge', 'license', 'manual'].every((k) => a.tools[k] === b.tools[k]);
+};
+const customGrid = () => {
+  const r = S.role;
+  const g = { perms: clone(r.perms), manageUsers: r.manageUsers, plantsCreate: r.plantsCreate, tools: clone(r.tools) };
+  if (!CRA.after) Object.assign(g, { manageUsers: 'none', plantsCreate: false, tools: { edge: false, license: false, manual: false } });
+  return g;
+};
+
+/* ---------- page state ---------- */
+const ui = {
+  showCustom: CRA.state !== 'add' && !S.role.deleted,
+  editor: null,
+  op: null, // {type:'delete'|'blocked'}
+  menu: null, // {id, items, rect}
+};
+const openEditor = (mode, role, step = 0) => {
+  const grid = role === 'custom' ? customGrid() : role ? CRA.builtinGrid(role, CRA.after) : emptyGrid();
+  const base = role === 'custom' ? { name: S.role.name, desc: S.role.desc } : role ? roleByKey(role) : { name: '', desc: '' };
+  ui.editor = { mode, role, step, name: base.name, desc: base.desc ?? base.description, grid, original: clone(grid), origName: base.name, origDesc: base.desc ?? base.description ?? '' };
+};
+const roleByKey = (key) => key === 'org_admin' ? CRA.ORG_ADMIN : CRA.BUILTINS.find((r) => r.key === key);
+
+if (CRA.state === 'add') {
+  openEditor('add', null, 1);
+  ui.editor.name = 'Line Lead';
+  ui.editor.desc = 'Line supervisor';
+  ui.editor.grid.perms.annotation = ['write'];
+  ui.editor.original = clone(ui.editor.grid);
+} else if (CRA.state === 'view-builtin') {
+  openEditor('view', 'manage_users_plant', 1);
+}
+
+/* ---------- roles table ---------- */
+const roleRows = () => {
+  const rows = [
+    { id: 'viewer', key: 'viewer', name: CRA.VIEWER.name, description: CRA.VIEWER.description, builtin: true, assigned: 'Everyone' },
+    { id: 'org_admin', key: 'org_admin', name: CRA.ORG_ADMIN.name, description: CRA.ORG_ADMIN.description, builtin: true, assigned: '1' },
+    ...CRA.BUILTINS.map((b) => ({ id: b.key, key: b.key, name: b.name, description: b.description, builtin: true, assigned: String(COUNTS[b.key] || 0) })),
+  ];
+  if (ui.showCustom && !S.role.deleted) rows.push({ id: 'custom', key: null, name: S.role.name, description: S.role.desc, builtin: false, assigned: S.assignedToKavya ? '1' : '0' });
+  return rows;
+};
+const menuFor = (role) => {
+  const items = [];
+  if (role.key !== 'viewer') items.push({ label: 'View', icon: icon.eye(), run: () => openEditor('view', role.id === 'custom' ? 'custom' : role.key) });
+  if (!role.builtin) {
+    items.push({ label: 'Edit', icon: icon.edit(), run: () => openEditor('edit', 'custom') });
+    items.push({ label: 'Delete', icon: icon.trash(), danger: true, run: () => (ui.op = { type: S.assignedToKavya ? 'blocked' : 'delete' }) });
+  }
+  return items;
+};
+
+/* ---------- PermissionGrid ---------- */
+const gridHtml = (g, readOnly) => {
+  const cell = (area, column, label) => {
+    const action = actionFor(area, column);
+    if (!action) return '<td class="p-2 text-center text-gray-400">—</td>';
+    if (action === 'view') return `<td class="p-2" title="Always on, because everyone is a Viewer"><div class="flex justify-center">${CRA.checkbox(true, true)}</div></td>`;
+    const checked = (g.perms[area] || []).includes(action);
+    return `<td class="p-2"><div class="flex justify-center" ${readOnly ? '' : `data-act="tick" data-area="${area}" data-action="${action}"`}>${CRA.checkbox(checked, readOnly, `aria-label="${esc(label + ' ' + column)}"`)}</div></td>`;
+  };
+  const rows = ROWS.map(({ area, label }, i) => {
+    const divider = CRA.after && i === ROWS.length - 1 ? ' border-b border-b-gray-400' : '';
+    return `<tr class="border-b${divider}"><td class="p-2 font-medium">${label}</td>${COLUMNS.map((c) => cell(area, c, label)).join('')}</tr>`;
+  }).join('');
+  let extra = '';
+  if (CRA.after) {
+    const opt = (v, t) => `<option value="${v}" ${g.manageUsers === v ? 'selected' : ''}>${t}</option>`;
+    extra += `<tr class="border-b"><td class="p-2 font-medium">Manage Users</td><td colspan="5" class="p-2">
+        <select class="w-full rounded-md border px-3 py-2 text-sm" aria-label="Manage Users level" data-act="mu" ${readOnly ? 'disabled' : ''}>${opt('none', 'None')}${opt('org', 'Organisation')}${opt('plant', 'Plant')}</select></td></tr>`;
+    extra += `<tr class="border-b"><td class="p-2 font-medium">Plants &amp; Teams</td>
+        <td class="p-2"><div class="flex justify-center" ${readOnly ? '' : 'data-act="plants"'}>${CRA.checkbox(g.plantsCreate, readOnly, 'aria-label="Plants &amp; Teams Create"')}</div></td>
+        <td class="p-2" title="Always on, because everyone is a Viewer"><div class="flex justify-center">${CRA.checkbox(true, true)}</div></td>
+        <td class="p-2 text-center text-gray-400">—</td><td class="p-2 text-center text-gray-400">—</td><td class="p-2 text-center text-gray-400">—</td></tr>`;
+  }
+  const table = `<table class="w-full border-collapse text-sm" data-testid="permission-grid">
+      <thead><tr class="border-b"><th class="p-2 text-left font-semibold">Area</th>${COLUMNS.map((c) => `<th class="p-2 text-center font-semibold">${c}</th>`).join('')}</tr></thead>
+      <tbody>${rows}${extra}</tbody></table>`;
+  if (!CRA.after) return table;
+  const tool = (k, label) => `<div class="flex items-center gap-3">${CRA.toggle(g.tools[k], readOnly, readOnly ? '' : `data-act="tool" data-tool="${k}" role="switch" aria-checked="${g.tools[k]}" aria-label="${label}"`)}<span class="text-sm font-medium">${label}</span></div>`;
+  return `${table}
+    <div class="mt-2 flex flex-col gap-3">
+      <div class="text-sm font-semibold">Tools</div>
+      ${tool('edge', 'FrinksEdge Download')}
+      ${tool('license', 'Download Demo License')}
+      ${tool('manual', 'Manual Assistant')}
+    </div>`;
+};
+
+/* ---------- RoleEditor ---------- */
+const stepper = (curr) => {
+  const steps = ['Basic Information', 'Permissions'];
+  return `<div class="flex flex-col items-start">${steps.map((t, i) => `
+    <div class="flex items-start">
+      <div class="flex flex-col items-center">
+        ${i === curr ? '<div class="my-[10px] flex h-7 w-7 items-center justify-center rounded-full bg-[#ff4301]"></div>'
+          : i < curr ? `<div class="relative my-[10px]"><div class="flex h-7 w-7 items-center justify-center rounded-full bg-[#ff4301]"></div>${icon.stepCheck()}</div>`
+          : `<span class="my-[10px] block text-gray-400">${icon.circle(28)}</span>`}
+        ${i !== steps.length - 1 ? `<div class="h-[100px] w-[2px] ${i < curr ? 'bg-[#ff4301]' : 'bg-gray-300'}"></div>` : ''}
+      </div>
+      <div class="ml-4 mt-[10px] w-[150px] text-lg flex items-center gap-1 ${i === curr ? 'font-bold text-black' : 'text-gray-500'}">${t}</div>
+    </div>`).join('')}</div>`;
+};
+const editorHtml = () => {
+  const e = ui.editor;
+  const readOnly = e.mode === 'view';
+  const changed = e.mode === 'add' || e.name.trim() !== e.origName || e.desc.trim() !== e.origDesc || !sameGrid(e.grid, e.original);
+  const body = e.step === 0 ? `
+      <div class="flex flex-col gap-4">
+        <div class="text-[28px] font-bold">Basic Information</div>
+        <label class="text-sm font-medium">Role Name</label>
+        ${CRA.input(e.name, { placeholder: 'Enter role name', disabled: readOnly, attrs: 'data-input="name"' })}
+        <label class="text-sm font-medium">Role Description</label>
+        ${CRA.input(e.desc, { placeholder: 'Enter role description', disabled: readOnly, attrs: 'data-input="desc"' })}
+      </div>` : `
+      <div class="flex flex-col gap-4">
+        <div class="text-[28px] font-bold">Permissions</div>
+        <p class="text-sm text-gray-500">View is always on. Annotations Create, Edit and Delete always go together.</p>
+        ${gridHtml(e.grid, readOnly)}
+      </div>`;
+  const left = CRA.button(e.step === 0 ? (readOnly ? 'Close' : 'Cancel') : 'Back', { variant: 'border', attrs: 'data-act="ed-left"' });
+  const right = e.step === 0
+    ? CRA.button('Next', { disabled: !e.name.trim(), attrs: 'data-act="ed-next"' })
+    : readOnly ? CRA.button('Close', { attrs: 'data-act="ed-close"' })
+    : CRA.button('Save', { disabled: !changed || !e.name.trim(), attrs: 'data-act="ed-save"' });
+  return `
+    <div class="fixed inset-0 z-[100] flex justify-end bg-[#00000080]" data-act="ed-backdrop">
+      <div class="flex h-screen min-w-[860px] flex-col bg-white" data-stop>
+        <div class="flex flex-1 overflow-hidden">
+          <div class="border-r p-8">${stepper(e.step)}</div>
+          <div class="flex-1 overflow-auto p-10" data-keep-scroll="editor">${body}</div>
+        </div>
+        <div class="flex justify-end gap-3 border-t p-4">${left}${right}</div>
+      </div>
+    </div>`;
+};
+
+/* ---------- render ---------- */
+const render = () => {
+  CRA.hideTip();
+  const rows = roleRows();
+  const cols = [
+    { label: 'Role Name', info: 'Built-in roles show a lock and cannot be changed.' },
+    { label: 'Description', info: 'What the role adds on top of View access.' },
+    { label: 'Users Assigned', info: 'How many users hold this role.' },
+  ];
+  const head = cols.map((c, i) => CRA.th(c.label, c.info, i)).join('') + CRA.th('', '', cols.length, true);
+  const body = rows.map((r) => `<tr>
+      ${CRA.td(`<span class="flex items-center gap-2">${r.builtin ? icon.lock('text-gray-400') : ''}${esc(r.name)}</span>`)}
+      ${CRA.td(esc(r.description))}
+      ${CRA.td(esc(r.assigned))}
+      ${CRA.td(CRA.rowMenu(r.id, menuFor(r).length))}
+    </tr>`).join('');
+  let modal = '';
+  if (ui.op?.type === 'delete') {
+    modal = CRA.modal('Delete role', `<p>Delete the role ${esc(S.role.name)}?</p>`, `<div class="ml-auto flex items-center gap-4 justify-end">${CRA.button('Cancel', { variant: 'border', attrs: 'data-act="op-close"' })}${CRA.button('Delete', { attrs: 'data-act="op-delete"' })}</div>`);
+  } else if (ui.op?.type === 'blocked') {
+    modal = CRA.modal('Can’t delete role', `<p>${esc(S.role.name)} can’t be deleted while it is held by: Kavya Rao.</p>`, `<div class="ml-auto flex items-center gap-4 justify-end">${CRA.button('Close', { attrs: 'data-act="op-close"' })}</div>`);
+  }
+  CRA.withScroll(app, () => {
+    app.innerHTML = `
+      ${CRA.sidebar({ active: 'roles', user: 'Ananya Iyer', access: { edge: true, manual: true } })}
+      <div class="${CRA.mainClass()}">
+        <div class="flex h-screen flex-col overflow-hidden"><div class="flex-1 overflow-auto">
+          ${CRA.heading('Roles', 'Built-in roles and your organization\'s custom roles.', `<div class="flex items-center gap-3">${CRA.button('Add Role', { attrs: 'data-act="add-role"' })}</div>`)}
+          <div class="flex flex-col gap-6 p-4">${CRA.table([0, 1, 2, 3], [null, null, 160, 60], head, body)}</div>
+        </div></div>
+      </div>
+      ${modal}
+      ${ui.editor ? editorHtml() : ''}
+      ${ui.menu ? CRA.rowMenuList(ui.menu.items, ui.menu.rect) : ''}`;
+  });
+};
+
+/* ---------- events ---------- */
+app.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-act]');
+  if (ui.menu && !(el && el.dataset.act === 'menu-item')) { ui.menu = null; render(); if (!el || el.dataset.act === 'menu') return; }
+  if (!el) return;
+  if (CRA.sidebarClick(el, render)) return;
+  const act = el.dataset.act;
+  const e = ui.editor;
+  if (act === 'ed-backdrop' || act === 'modal-backdrop') {
+    if (ev.target.closest('[data-stop]')) return;
+    if (act === 'ed-backdrop') ui.editor = null; else ui.op = null;
+    return render();
+  }
+  switch (act) {
+    case 'menu': {
+      const role = roleRows().find((r) => r.id === el.dataset.id);
+      ui.menu = { items: menuFor(role), rect: el.getBoundingClientRect() };
+      return render();
+    }
+    case 'menu-item': {
+      const it = ui.menu.items[+el.dataset.idx];
+      ui.menu = null;
+      it.run();
+      return render();
+    }
+    case 'add-role': openEditor('add', null); return render();
+    case 'tick': {
+      const { area, action } = el.dataset;
+      const cur = new Set(e.grid.perms[area]);
+      cur.has(action) ? cur.delete(action) : cur.add(action);
+      e.grid.perms[area] = CRA.AREA_ACTIONS[area].filter((a) => cur.has(a));
+      return render();
+    }
+    case 'plants': e.grid.plantsCreate = !e.grid.plantsCreate; return render();
+    case 'tool': e.grid.tools[el.dataset.tool] = !e.grid.tools[el.dataset.tool]; return render();
+    case 'ed-left': if (e.step === 0) ui.editor = null; else e.step = 0; return render();
+    case 'ed-next': e.step = 1; return render();
+    case 'ed-close': ui.editor = null; return render();
+    case 'ed-save': {
+      S = CRA.load();
+      const role = Object.assign({}, S.role, { name: e.name.trim(), desc: e.desc.trim(), perms: clone(e.grid.perms), deleted: false });
+      if (CRA.after) Object.assign(role, { manageUsers: e.grid.manageUsers, plantsCreate: e.grid.plantsCreate, tools: clone(e.grid.tools) });
+      S.role = role;
+      CRA.save(S);
+      const wasAdd = e.mode === 'add';
+      ui.editor = null;
+      ui.showCustom = true;
+      render();
+      CRA.toast(wasAdd ? 'Role created' : 'Role updated');
+      if (wasAdd && CRA.state === 'add') setTimeout(() => CRA.nav('roles-view-builtin'), 800);
+      return;
+    }
+    case 'op-close': case 'modal-close': ui.op = null; return render();
+    case 'op-delete': {
+      S = CRA.load();
+      S.role.deleted = true;
+      CRA.save(S);
+      ui.op = null;
+      render();
+      CRA.toast(`${S.role.name} deleted`);
+      return;
+    }
+  }
+});
+app.addEventListener('change', (ev) => {
+  if (ev.target.dataset.act === 'mu' && ui.editor) { ui.editor.grid.manageUsers = ev.target.value; render(); }
+});
+app.addEventListener('input', (ev) => {
+  const k = ev.target.dataset.input;
+  if (!k || !ui.editor) return;
+  ui.editor[k] = ev.target.value;
+  // update buttons without losing focus
+  const pos = ev.target.selectionStart;
+  render();
+  const again = app.querySelector(`[data-input="${k}"]`);
+  if (again) { again.focus(); again.setSelectionRange(pos, pos); }
+});
+CRA.onStateChange(() => { S = CRA.load(); render(); });
+render();
+CRA.mountModeSwitch();
+</script>
+</body>
+</html>
